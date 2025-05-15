@@ -327,32 +327,42 @@ function createPopup() {
 function getCurrentHideSettings() {
     console.debug(`[${extensionName} DEBUG] Entering getCurrentHideSettings.`);
     
-    // 首先检查是否有特定实体的有效设置
+    // 先获取当前实体ID
     const entityId = getCurrentEntityId();
-    if (entityId) {
-        const entitySettings = extension_settings[extensionName]?.settings_by_entity?.[entityId] || null;
-        
-        // 如果有实体特定设置且是用户配置的且hideLastN不为0，优先使用聊天模式设置
-        if (entitySettings && entitySettings.userConfigured === true && entitySettings.hideLastN > 0) {
-            console.debug(`[${extensionName} DEBUG] getCurrentHideSettings: Using entity-specific settings for "${entityId}".`);
-            return entitySettings;
+    if (!entityId) {
+        console.warn(`[${extensionName} DEBUG] getCurrentHideSettings: Could not determine entityId.`);
+        // 如果无法确定实体ID，但启用了全局设置，则返回全局设置
+        if (extension_settings[extensionName]?.useGlobalSettings) {
+            console.debug(`[${extensionName} DEBUG] getCurrentHideSettings: Using global settings as fallback.`);
+            return extension_settings[extensionName]?.globalHideSettings || null;
         }
+        return null;
     }
     
-    // 如果没有特定实体的有效设置，且全局模式已启用，则使用全局设置
+    // 获取实体特定设置
+    const entitySettings = extension_settings[extensionName]?.settings_by_entity?.[entityId] || null;
+    console.debug(`[${extensionName} DEBUG] getCurrentHideSettings: Entity settings for "${entityId}":`, entitySettings);
+    
+    // 判断实体是否有有效的隐藏设置（已配置且hideLastN > 0）
+    const hasValidEntitySettings = entitySettings && 
+                                  entitySettings.userConfigured === true && 
+                                  entitySettings.hideLastN > 0;
+    
+    // 如果实体有有效设置，优先使用
+    if (hasValidEntitySettings) {
+        console.debug(`[${extensionName} DEBUG] getCurrentHideSettings: Using valid entity settings.`);
+        return entitySettings;
+    }
+    
+    // 如果实体没有有效设置且全局模式已开启，使用全局设置
     if (extension_settings[extensionName]?.useGlobalSettings) {
         console.debug(`[${extensionName} DEBUG] getCurrentHideSettings: No valid entity settings, using global settings.`);
         return extension_settings[extensionName]?.globalHideSettings || null;
     }
     
-    // 返回实体特定设置（即使它是无效的或为0）
-    if (entityId) {
-        const settings = extension_settings[extensionName]?.settings_by_entity?.[entityId] || null;
-        console.debug(`[${extensionName} DEBUG] getCurrentHideSettings: Returning entity settings for "${entityId}":`, settings);
-        return settings;
-    }
-    
-    return null;
+    // 返回实体设置（即使无效），因为用户选择了聊天模式
+    console.debug(`[${extensionName} DEBUG] getCurrentHideSettings: Using entity settings (may be null).`);
+    return entitySettings;
 }
 
 // 保存当前隐藏设置 (到全局 extension_settings)
