@@ -799,72 +799,70 @@ async function unhideAllMessages() {
     console.log(`[${extensionName}] Entering unhideAllMessages.`);
     const context = getContextOptimized();
 
-    if (!context || !context.chat) {
-         console.warn(`[${extensionName}] Unhide all: Chat data not available.`);
-         
-         // 即使没有聊天数据，也尝试重置隐藏设置
-         if (extension_settings[extensionName].useGlobalSettings) {
-             console.log(`[${extensionName}] Unhide all: Attempting to reset global hide settings to 0 even though chat is unavailable.`);
-             extension_settings[extensionName].globalHideSettings.hideLastN = 0;
-             extension_settings[extensionName].globalHideSettings.userConfigured = true;
-             saveSettingsDebounced();
-             updateCurrentHideSettingsDisplay();
-         } else {
-             const entityId = getCurrentEntityId();
-             if (entityId) {
-                 console.log(`[${extensionName}] Unhide all: Attempting to reset hide settings to 0 for entity ${entityId} even though chat is unavailable.`);
-                 saveCurrentHideSettings(0);
-                 updateCurrentHideSettingsDisplay();
-             } else {
-                 console.error(`[${extensionName}] Unhide all aborted: Cannot determine entityId to reset settings.`);
-                 toastr.error('无法取消隐藏：无法确定当前目标。');
-             }
-         }
-         return;
-    }
+    // 先处理聊天数据的隐藏恢复
+    if (context && context.chat) {
+        const chat = context.chat;
+        const chatLength = chat.length;
+        console.log(`[${extensionName}] Unhide all: Chat length is ${chatLength}.`);
 
-    const chat = context.chat;
-    const chatLength = chat.length;
-    console.log(`[${extensionName}] Unhide all: Chat length is ${chatLength}.`);
-
-    const toShow = [];
-    console.log(`[${extensionName}] Unhide all: Scanning chat for hidden messages...`);
-    for (let i = 0; i < chatLength; i++) {
-        if (chat[i] && chat[i].is_system === true) {
-            console.debug(`[${extensionName} DEBUG] Unhide all: Found hidden message at index ${i}. Marking to show.`);
-            toShow.push(i);
-        }
-    }
-    console.log(`[${extensionName}] Unhide all: Found ${toShow.length} messages to unhide.`);
-
-    if (toShow.length > 0) {
-        console.log(`[${extensionName}] Unhide all: Updating chat array data...`);
-        toShow.forEach(idx => { if (chat[idx]) chat[idx].is_system = false; });
-        console.log(`[${extensionName}] Unhide all: Chat data updated.`);
-        try {
-            console.log(`[${extensionName}] Unhide all: Updating DOM...`);
-            const showSelector = toShow.map(id => `.mes[mesid="${id}"]`).join(',');
-            if (showSelector) {
-                 console.debug(`[${extensionName} DEBUG] Unhide all: Applying selector: ${showSelector}`);
-                 $(showSelector).attr('is_system', 'false');
-                 console.log(`[${extensionName}] Unhide all: DOM updated.`);
+        const toShow = [];
+        for (let i = 0; i < chatLength; i++) {
+            if (chat[i] && chat[i].is_system === true) {
+                toShow.push(i);
             }
-        } catch (error) {
-            console.error(`[${extensionName}] Error updating DOM when unhiding all:`, error);
+        }
+        console.log(`[${extensionName}] Unhide all: Found ${toShow.length} messages to unhide.`);
+
+        if (toShow.length > 0) {
+            toShow.forEach(idx => { if (chat[idx]) chat[idx].is_system = false; });
+            
+            try {
+                const showSelector = toShow.map(id => `.mes[mesid="${id}"]`).join(',');
+                if (showSelector) {
+                    $(showSelector).attr('is_system', 'false');
+                }
+            } catch (error) {
+                console.error(`[${extensionName}] Error updating DOM when unhiding all:`, error);
+            }
         }
     } else {
-        console.log(`[${extensionName}] Unhide all: No hidden messages found to change.`);
+        console.warn(`[${extensionName}] Unhide all: Chat data not available.`);
     }
 
-    console.log(`[${extensionName}] Unhide all: Saving hide setting as 0.`);
-    const success = saveCurrentHideSettings(0);
-    if (success) {
-        console.log(`[${extensionName}] Unhide all: Hide setting successfully reset to 0.`);
-        updateCurrentHideSettingsDisplay();
+    // 修复: 保存设置时仅更新当前激活模式的设置
+    if (extension_settings[extensionName].useGlobalSettings) {
+        // 全局模式: 只重置全局设置
+        console.log(`[${extensionName}] Unhide all: Resetting ONLY global hide settings to 0`);
+        extension_settings[extensionName].globalHideSettings = {
+            hideLastN: 0,
+            lastProcessedLength: context?.chat?.length || 0,
+            userConfigured: true
+        };
     } else {
-        console.error(`[${extensionName}] Unhide all: Failed to issue command to reset hide setting to 0.`);
+        // 聊天模式: 只重置当前实体的设置
+        const entityId = getCurrentEntityId();
+        if (entityId) {
+            console.log(`[${extensionName}] Unhide all: Resetting ONLY entity ${entityId} hide settings to 0`);
+            
+            if (!extension_settings[extensionName].settings_by_entity) {
+                extension_settings[extensionName].settings_by_entity = {};
+            }
+            
+            extension_settings[extensionName].settings_by_entity[entityId] = {
+                hideLastN: 0,
+                lastProcessedLength: context?.chat?.length || 0,
+                userConfigured: true
+            };
+        } else {
+            console.error(`[${extensionName}] Unhide all: Cannot determine entityId to reset settings.`);
+            toastr.error('无法取消隐藏：无法确定当前角色或群组。');
+        }
     }
-     console.log(`[${extensionName}] Unhide all completed in ${performance.now() - startTime}ms`);
+    
+    // 保存设置并更新显示
+    saveSettingsDebounced();
+    updateCurrentHideSettingsDisplay();
+    console.log(`[${extensionName}] Unhide all completed in ${performance.now() - startTime}ms`);
 }
 
 // 设置UI元素的事件监听器
@@ -956,9 +954,11 @@ function setupEventListeners() {
             // 更新按钮文本
             $btn.text(newMode ? '全局模式' : '聊天模式');
             
-            // 更新显示并运行检查
+            // 更新显示并运行检查 - 这里确保应用当前模式下的正确设置
             updateCurrentHideSettingsDisplay();
-            runFullHideCheckDebounced();
+            
+            // 关键修复: 应用当前模式下应该使用的设置
+            runFullHideCheck(); // 直接运行而不是防抖，确保立即应用
             
             toastr.info(`已切换到${newMode ? '全局' : '聊天'}设置模式`);
         }
