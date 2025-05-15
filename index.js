@@ -323,32 +323,25 @@ function createPopup() {
     console.log(`[${extensionName}] Exiting createPopup.`);
 }
 
-// 获取当前应该使用的隐藏设置 (优先使用聊天模式设置，其次全局模式设置)
+// 获取当前应该使用的隐藏设置 (从全局 extension_settings 读取)
 function getCurrentHideSettings() {
-    console.debug(`[${extensionName} DEBUG] Entering getCurrentHideSettings.`);
+    console.debug(`[${extensionName} DEBUG] Entering getCurrentHideSettings`);
     
-    // 优先检查当前角色卡是否有聊天模式设置
-    const entityId = getCurrentEntityId();
-    if (entityId) {
-        const entitySettings = extension_settings[extensionName]?.settings_by_entity?.[entityId];
-        if (entitySettings && entitySettings.userConfigured) {
-            console.debug(`[${extensionName} DEBUG] getCurrentHideSettings: Using chat-specific settings for entity "${entityId}".`);
-            return entitySettings;
-        }
-    }
-
-    // 如果没有聊天模式设置，检查是否启用了全局模式设置
+    // 1. 如果使用全局模式，直接返回全局设置
     if (extension_settings[extensionName]?.useGlobalSettings) {
-        const globalSettings = extension_settings[extensionName]?.globalHideSettings;
-        if (globalSettings && globalSettings.userConfigured) {
-            console.debug(`[${extensionName} DEBUG] getCurrentHideSettings: Using global settings.`);
-            return globalSettings;
-        }
+        console.debug(`[${extensionName} DEBUG] Using global settings`);
+        return extension_settings[extensionName]?.globalHideSettings || null;
     }
-
-    // 如果两者都没有设置，返回 null
-    console.debug(`[${extensionName} DEBUG] getCurrentHideSettings: No valid settings found. Returning null.`);
-    return null;
+    
+    // 2. 否则返回当前实体的聊天模式设置
+    const entityId = getCurrentEntityId();
+    if (!entityId) {
+        console.debug(`[${extensionName} DEBUG] No entityId, returning null`);
+        return null;
+    }
+    
+    console.debug(`[${extensionName} DEBUG] Using chat-specific settings for ${entityId}`);
+    return extension_settings[extensionName]?.settings_by_entity?.[entityId] || null;
 }
 
 // 保存当前隐藏设置 (到全局 extension_settings)
